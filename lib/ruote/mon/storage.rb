@@ -53,11 +53,11 @@ module Mon
         # can't do that...
 
       (TYPES - %w[ msgs schedules ]).each do |t|
-        collection(t).ensure_index('_wfid')
-        collection(t).ensure_index([ [ '_id', 1 ], [ '_rev', 1 ] ])
+        collection(t).indexes.create_one('_wfid' => 1)
+        collection(t).indexes.create_one('_id' => 1, '_rev' => 1)
       end
-      collection('schedules').ensure_index('_wfid')
-      collection('schedules').ensure_index('at')
+      collection('schedules').indexes.create_one('_wfid' => 1)
+      collection('schedules').indexes.create_one('at' => 1)
 
       replace_engine_configuration(options)
     end
@@ -73,9 +73,11 @@ module Mon
     #
     def reserve(doc)
 
-      r = collection(doc).remove(
-        { '_id' => doc['_id'] },
-        :safe => true)
+      r = collection(doc).
+        find({ '_id' => doc['_id'] }).
+        delete_one.
+        documents.
+        first
 
       r['n'] == 1
     end
@@ -91,7 +93,7 @@ module Mon
       msg['_rev'] = 0
         # in case of msg replay
 
-      collection(msg).insert(to_mongo(msg))
+      collection(msg).insert_one(to_mongo(msg))
     end
 
     def put(doc, opts={})
@@ -108,11 +110,13 @@ module Mon
       end
 
       r = begin
-        collection(doc).update(
-          { '_id' => doc['_id'], '_rev' => original['_rev'] },
+        c = collection(doc).find({ '_id' => doc['_id'], '_rev' => original['_rev'] })
+        c.update_one(
           to_mongo(opts[:update_rev] ? Ruote.fulldup(doc) : doc),
-          :safe => true, :upsert => original['_rev'].nil?)
-      rescue Mongo::OperationFailure
+          :w => true,
+          :upsert => original['_rev'].nil?
+        ).first
+      rescue Mongo::Error::OperationFailure
         false
       end
 
@@ -127,8 +131,7 @@ module Mon
     end
 
     def get(type, key)
-
-      from_mongo(collection(type).find_one('_id' => key))
+      from_mongo(collection(type).find('_id' => key).first)
     end
 
     def delete(doc)
@@ -137,9 +140,10 @@ module Mon
 
       raise ArgumentError.new("can't delete doc without _rev") unless rev
 
-      r = collection(doc).remove(
-        { '_id' => doc['_id'], '_rev' => doc['_rev'] },
-        :safe => true)
+      r = collection(doc).find({
+        '_id' => doc['_id'],
+        '_rev' => doc['_rev']
+      }).delete_one.documents.first
 
       if r['n'] == 1
         nil
@@ -273,8 +277,7 @@ module Mon
 
       return cursor.count if opts['count']
 
-      cursor.sort(
-        '_id', opts['descending'] ? Mongo::DESCENDING : Mongo::ASCENDING)
+      cursor.sort(:"_id" => opts['descending'] ? -1 : 1)
 
       cursor.skip(opts['skip'])
       cursor.limit(opts['limit'])
