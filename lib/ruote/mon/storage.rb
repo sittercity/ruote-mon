@@ -54,10 +54,7 @@ module Mon
 
       (TYPES - %w[ msgs schedules ]).each do |t|
         collection(t).indexes.create_one('_wfid' => 1)
-        collection(t).indexes.create_many([
-          { key: {'_id' => 1}},
-          { key: {'_rev' => 1}}
-        ])
+        collection(t).indexes.create_one('_id' => 1, '_rev' => 1)
       end
       collection('schedules').indexes.create_one('_wfid' => 1)
       collection('schedules').indexes.create_one('at' => 1)
@@ -75,7 +72,13 @@ module Mon
     # Returns true if the doc was successfully deleted.
     #
     def reserve(doc)
-      r = collection(doc).find({ '_id' => doc['_id'] }).delete_one.documents.first
+
+      r = collection(doc).
+        find({ '_id' => doc['_id'] }).
+        delete_one.
+        documents.
+        first
+
       r['n'] == 1
     end
 
@@ -110,7 +113,8 @@ module Mon
         c = collection(doc).find({ '_id' => doc['_id'], '_rev' => original['_rev'] })
         c.update_one(
           to_mongo(opts[:update_rev] ? Ruote.fulldup(doc) : doc),
-          :safe => true, :upsert => original['_rev'].nil?
+          :w => true,
+          :upsert => original['_rev'].nil?
         ).first
       rescue Mongo::Error::OperationFailure
         false
@@ -175,6 +179,7 @@ module Mon
     end
 
     def purge!
+
       TYPES.each { |t| collection(t).remove }
     end
 
@@ -202,6 +207,7 @@ module Mon
     # Nukes a db type and reputs it(losing all the documents that were in it).
     #
     def purge_type!(type)
+
       collection(type).remove
     end
 
@@ -271,7 +277,7 @@ module Mon
 
       return cursor.count if opts['count']
 
-      cursor.sort(:"_id" => opts['descending'] ? Mongo::Index::DESCENDING : Mongo::Index::ASCENDING)
+      cursor.sort(:"_id" => opts['descending'] ? -1 : 1)
 
       cursor.skip(opts['skip'])
       cursor.limit(opts['limit'])
